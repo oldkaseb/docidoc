@@ -1,5 +1,3 @@
-# bot.py
-
 import os, json
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -12,9 +10,11 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 USERS_FILE, BLOCKS_FILE, ADMINS_FILE, WELCOME_FILE = "users.json", "blocks.json", "admins.json", "welcome.txt"
 REPLY_MODE = {}
 
+# ------------------ فایل‌های ذخیره‌سازی ------------------
 def load_json(file): return json.load(open(file)) if os.path.exists(file) else {}
 def save_json(file, data): json.dump(data, open(file, "w"), indent=2)
 
+# ------------------ کاربران ------------------
 def save_user(user):
     users = load_json(USERS_FILE)
     if str(user.id) not in users:
@@ -29,17 +29,20 @@ def is_blocked(uid): return str(uid) in load_json(BLOCKS_FILE)
 def block(uid): data = load_json(BLOCKS_FILE); data[str(uid)] = True; save_json(BLOCKS_FILE, data)
 def unblock(uid): data = load_json(BLOCKS_FILE); data.pop(str(uid), None); save_json(BLOCKS_FILE, data)
 
+# ------------------ ادمین‌ها ------------------
 def get_admins(): return list(map(int, load_json(ADMINS_FILE).keys()))
 def is_admin(uid): return uid in get_admins()
 def add_admin(user_id, name, username):
     data = load_json(ADMINS_FILE)
     data[str(user_id)] = {"name": name, "username": username}
     save_json(ADMINS_FILE, data)
+
 def remove_admin(user_id):
     data = load_json(ADMINS_FILE)
     data.pop(str(user_id), None)
     save_json(ADMINS_FILE, data)
 
+# ------------------ پیام خوش‌آمد و دکمه‌ها ------------------
 def get_welcome():
     if os.path.exists(WELCOME_FILE):
         with open(WELCOME_FILE) as f: return f.read()
@@ -51,6 +54,7 @@ def keyboard_user():
 def keyboard_admin_reply(uid):
     return InlineKeyboardMarkup([[InlineKeyboardButton("✉️ پاسخ", callback_data=f"reply:{uid}")]])
 
+# ------------------ تعامل کاربر ------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     save_user(user)
@@ -86,6 +90,7 @@ async def user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         context.user_data["awaiting_message"] = False
 
+# ------------------ پاسخ ادمین ------------------
 async def admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     aid = update.effective_user.id
     if aid in REPLY_MODE:
@@ -96,6 +101,7 @@ async def admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             await update.message.reply_text("❌ ارسال ناموفق بود. شاید کاربر بلاک شده یا چت غیرفعاله.")
 
+# ------------------ دستورات مدیریتی ------------------
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return
     users = load_json(USERS_FILE)
@@ -152,6 +158,23 @@ async def setwelcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with open(WELCOME_FILE, "w") as f: f.write(text)
     await update.message.reply_text("✅ پیام خوش‌آمد با موفقیت ذخیره شد.")
 
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id): return
+    msg = """📋 دستورات مدیریتی (فقط برای ادمین):
+
+/stats — نمایش آمار کاربران
+/forall (ریپلای) — ارسال پیام همگانی
+/block <user_id> — بلاک کردن کاربر
+/unblock <user_id> — آزاد کردن کاربر
+/addadmin <user_id> — اضافه کردن ادمین
+/removeadmin <user_id> — حذف ادمین
+/setwelcome <متن> — تنظیم پیام خوش‌آمد
+
+✉️ برای پاسخ به پیام کاربر از دکمه «پاسخ» زیر پیام استفاده کنید.
+"""
+    await update.message.reply_text(msg)
+
+# ------------------ اجرای اصلی ------------------
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
@@ -162,6 +185,7 @@ def main():
     app.add_handler(CommandHandler("addadmin", addadmin))
     app.add_handler(CommandHandler("removeadmin", removeadmin))
     app.add_handler(CommandHandler("setwelcome", setwelcome))
+    app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CallbackQueryHandler(handle_buttons))
     app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, admin_reply))
     app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, user_message))
