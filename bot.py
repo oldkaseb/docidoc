@@ -9,9 +9,7 @@ from telegram.ext import (
 )
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMINS = list(map(int, os.getenv("ADMIN_IDS", "").split(",")))
-
-USERS_FILE, BLOCKS_FILE, WELCOME_FILE = "users.json", "blocks.json", "welcome.txt"
+USERS_FILE, BLOCKS_FILE, ADMINS_FILE, WELCOME_FILE = "users.json", "blocks.json", "admins.json", "welcome.txt"
 REPLY_MODE = {}
 
 def load_json(file): return json.load(open(file)) if os.path.exists(file) else {}
@@ -28,10 +26,19 @@ def save_user(user):
         save_json(USERS_FILE, users)
 
 def is_blocked(uid): return str(uid) in load_json(BLOCKS_FILE)
-def block(uid):
-    data = load_json(BLOCKS_FILE); data[str(uid)] = True; save_json(BLOCKS_FILE, data)
-def unblock(uid):
-    data = load_json(BLOCKS_FILE); data.pop(str(uid), None); save_json(BLOCKS_FILE, data)
+def block(uid): data = load_json(BLOCKS_FILE); data[str(uid)] = True; save_json(BLOCKS_FILE, data)
+def unblock(uid): data = load_json(BLOCKS_FILE); data.pop(str(uid), None); save_json(BLOCKS_FILE, data)
+
+def get_admins(): return list(map(int, load_json(ADMINS_FILE).keys()))
+def is_admin(uid): return uid in get_admins()
+def add_admin(user_id, name, username):
+    data = load_json(ADMINS_FILE)
+    data[str(user_id)] = {"name": name, "username": username}
+    save_json(ADMINS_FILE, data)
+def remove_admin(user_id):
+    data = load_json(ADMINS_FILE)
+    data.pop(str(user_id), None)
+    save_json(ADMINS_FILE, data)
 
 def get_welcome():
     if os.path.exists(WELCOME_FILE):
@@ -67,7 +74,7 @@ async def user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if context.user_data.get("awaiting_message"):
         msg = update.message.text or "<بدون متن>"
-        for aid in ADMINS:
+        for aid in get_admins():
             await context.bot.send_message(
                 aid,
                 f"📩 پیام جدید از {user.full_name} (@{user.username} | {user.id}):\n\n{msg}",
@@ -90,7 +97,7 @@ async def admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ ارسال ناموفق بود. شاید کاربر بلاک شده یا چت غیرفعاله.")
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMINS: return
+    if not is_admin(update.effective_user.id): return
     users = load_json(USERS_FILE)
     msg = "📊 آمار کاربران:\n"
     for uid, u in users.items():
@@ -98,7 +105,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg or "هیچ کاربری ثبت نشده.")
 
 async def forall(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMINS: return
+    if not is_admin(update.effective_user.id): return
     if not update.message.reply_to_message: return
     text = update.message.reply_to_message.text
     users = load_json(USERS_FILE)
@@ -111,44 +118,42 @@ async def forall(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"📤 پیام برای {count} نفر ارسال شد.")
 
 async def block_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMINS: return
+    if not is_admin(update.effective_user.id): return
     if context.args:
         uid = int(context.args[0])
         block(uid)
         await update.message.reply_text(f"🚫 کاربر {uid} بلاک شد.")
 
 async def unblock_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMINS: return
+    if not is_admin(update.effective_user.id): return
     if context.args:
         uid = int(context.args[0])
         unblock(uid)
         await update.message.reply_text(f"✅ کاربر {uid} آزاد شد.")
 
 async def addadmin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMINS: return
+    if not is_admin(update.effective_user.id): return
     if context.args:
-        new = int(context.args[0])
-        if new not in ADMINS:
-            ADMINS.append(new)
-            await update.message.reply_text(f"✅ آیدی {new} به ادمین‌ها اضافه شد.")
+        new_id = int(context.args[0])
+        user = await context.bot.get_chat(new_id)
+        add_admin(new_id, user.full_name, user.username)
+        await update.message.reply_text(f"✅ آیدی {new_id} به ادمین‌ها اضافه شد.")
 
 async def removeadmin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMINS: return
+    if not is_admin(update.effective_user.id): return
     if context.args:
         rem = int(context.args[0])
-        if rem in ADMINS:
-            ADMINS.remove(rem)
-            await update.message.reply_text(f"✅ آیدی {rem} از لیست ادمین‌ها حذف شد.")
+        remove_admin(rem)
+        await update.message.reply_text(f"✅ آیدی {rem} از لیست ادمین‌ها حذف شد.")
 
 async def setwelcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMINS: return
+    if not is_admin(update.effective_user.id): return
     text = " ".join(context.args)
     with open(WELCOME_FILE, "w") as f: f.write(text)
     await update.message.reply_text("✅ پیام خوش‌آمد با موفقیت ذخیره شد.")
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("forall", forall))
@@ -157,11 +162,9 @@ def main():
     app.add_handler(CommandHandler("addadmin", addadmin))
     app.add_handler(CommandHandler("removeadmin", removeadmin))
     app.add_handler(CommandHandler("setwelcome", setwelcome))
-
     app.add_handler(CallbackQueryHandler(handle_buttons))
     app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, admin_reply))
     app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, user_message))
-
     print("🤖 Dr Goshad is online.")
     app.run_polling()
 
